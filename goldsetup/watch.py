@@ -79,6 +79,10 @@ def run_watch(watch_interval: int = DEFAULT_INTERVAL, account: float = 10000.0,
               alert_missing: bool = True, heartbeat: bool = True) -> None:
     """Scan every watch_interval seconds and push qualifying setups to Telegram."""
     state = _load_state(cache_dir)
+    if not state.get("primed"):
+        state["primed"] = True
+        state["last_signal"] = time.time()
+        _save_state(state, cache_dir)
     last_heartbeat = state.get("last_signal", 0)
     _log(f"XAU/USD 24/7 scanner started — every {watch_interval}s "
          f"(account {account:,.0f} @ {risk_pct}% risk)")
