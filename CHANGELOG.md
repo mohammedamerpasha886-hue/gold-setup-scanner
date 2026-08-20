@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.8.1] - 2026-08-20
+### Changed
+- **TwelveData is now the sole data source** — Yahoo Finance removed entirely
+  (`GC=F` fetcher deleted). Set `TWELVEDATA_API_KEY` to a real key for live
+  data; the bundled demo key returns delayed/capped data.
+- 61 tests passing.
+
 ## [0.8.0] - 2026-08-20
 ### Added
 - **3 new institutional strategies** (all run every scan, all with strict R:R

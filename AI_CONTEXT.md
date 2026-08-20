@@ -14,11 +14,10 @@
 - **Languages:** Python ≥ 3.10 (standard library only — no pip, pandas, numpy, or rich available in the dev environment)
 - **Frameworks:** None (argparse CLI, dataclasses, urllib, http.server)
 - **Databases/Storage:** On-disk JSON cache at `~/.cache/goldsetup` (TTL per interval)
-- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 60 passing)
+- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 61 passing)
 
 ## Data Sources
-- **Primary:** Yahoo Finance chart API `GC=F` (COMEX gold futures).
-- **Fallback:** TwelveData `XAU/USD` (gold spot) — used automatically when Yahoo is rate-limited or fails. API key via `TWELVEDATA_API_KEY` (bundled default). Active source exposed as `data.LAST_SOURCE` and shown in every report.
+- **Sole source:** TwelveData `XAU/USD` (gold spot). API key via `TWELVEDATA_API_KEY` (bundled demo default; use a real key for live data). Active source exposed as `data.LAST_SOURCE` and shown in every report.
 - **Intervals:** `1m`, `5m`, `15m`, `1h` only (default `5m`). Higher timeframes removed by user request.
 - **Ranges:** `1m`→`5d`, `5m`→`1d`, `15m`→`5d`, `1h`→`1mo` (auto).
 - **Cache TTLs:** 1m 30s, 5m 60s, 15m 3m, 1h 15m. `--realtime` / `--no-cache` bypasses cache.
@@ -31,7 +30,7 @@ MyApp/
 ├── pyproject.toml           # pip metadata + gold-setup console script
 ├── goldsetup/
 │   ├── cli.py               # argument parsing, orchestration (fetch 5m/15m/1h, run scan, report, watch)
-│   ├── data.py              # Yahoo/TwelveData fetchers + disk cache + shared constants + MTF helpers
+│   ├── data.py              # TwelveData fetcher + disk cache + shared constants + MTF helpers
 │   ├── indicators.py        # EMA, SMA, RSI, MACD, ATR, ADX, Bollinger, Stochastic, Donchian, pivots, swings, patterns
 │   ├── analysis.py          # market-structure engine + unfilled-FVG / session-range helpers
 │   ├── scalper.py           # the five institutional scalping strategies + scan() orchestration
@@ -69,7 +68,7 @@ MyApp/
 - `python3 tests/run_tests.py` — run the full test suite (no install required).
 
 ## Current Known Issues / Blockers
-- Yahoo Finance occasionally rate-limits (HTTP 429); TwelveData fallback covers it. Both may fail if the sandbox network is restricted.
+- TwelveData can rate-limit the free/demo key (HTTP 429) or return delayed data; a real `TWELVEDATA_API_KEY` gives live bars.
 - Setup "probability" is a deterministic confluence estimate, not a statistical win rate (backtesting was removed).
 
 ## Important Instructions for AI Agents

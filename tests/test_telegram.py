@@ -29,7 +29,7 @@ def _fake_setup():
 
 
 def test_format_setup_message_includes_full_setup():
-    msg = format_setup_message(_fake_setup(), source="yahoo", utc="12:00:00")
+    msg = format_setup_message(_fake_setup(), source="twelvedata", utc="12:00:00")
     assert "XAU/USD TRADE SETUP FOUND" in msg
     assert "Multi-Timeframe FVG + EMA Pullback" in msg
     assert "LONG" in msg
@@ -39,7 +39,7 @@ def test_format_setup_message_includes_full_setup():
 
 
 def test_format_no_setup():
-    msg = format_no_setup(4544.5, utc="12:00:00", source="yahoo")
+    msg = format_no_setup(4544.5, utc="12:00:00", source="twelvedata")
     assert "no qualifying setup" in msg
     assert "4,544.50" in msg
 

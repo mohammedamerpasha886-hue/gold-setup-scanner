@@ -33,12 +33,16 @@ def test_fetch_candles_uses_cache_and_source_flag():
     assert out[0].close == 1.5
 
 
-def test_fetch_falls_back_to_twelvedata_on_yahoo_failure():
+def test_fetch_uses_twelvedata_only():
     from unittest.mock import patch
 
     candles = data.Candle(1700000000, 1.0, 2.0, 0.5, 1.5, 10.0)
-    with patch.object(data, "_fetch_yahoo", side_effect=RuntimeError("boom")), \
-            patch.object(data, "_fetch_twelvedata", return_value=[candles]):
+    with patch.object(data, "_fetch_twelvedata", return_value=[candles]) as mock:
         out = data._fetch_remote("5m", "1d")
+    mock.assert_called_once()
     assert out[0].close == 1.5
     assert data.LAST_SOURCE == "twelvedata"
+
+
+def test_no_yahoo_module():
+    assert not hasattr(data, "_fetch_yahoo")

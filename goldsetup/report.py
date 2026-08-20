@@ -53,7 +53,7 @@ def _timeframe_label(strategy: str) -> str:
 
 def render_report(candles: list[Candle], a: Analysis, setups: list[Setup],
                   interval: str, account: float, risk_pct: float,
-                  source: str = "yahoo", no_color: bool = False, stream=None,
+                  source: str = "twelvedata", no_color: bool = False, stream=None,
                   verbose: bool = False) -> str:
     color = _use_color(no_color, stream)
     lines: list[str] = []
@@ -104,7 +104,7 @@ def render_report(candles: list[Candle], a: Analysis, setups: list[Setup],
 
 
 def render_json(candles: list[Candle], a: Analysis, setups: list[Setup], interval: str,
-                account: float, risk_pct: float, source: str = "yahoo") -> str:
+                account: float, risk_pct: float, source: str = "twelvedata") -> str:
     last = candles[-1]
     payload = {
         "symbol": "GC=F",

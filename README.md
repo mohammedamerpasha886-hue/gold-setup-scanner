@@ -73,11 +73,9 @@ for a public dashboard URL.
 
 ## Data
 
-- **Primary:** Yahoo Finance chart API (`GC=F`, COMEX gold futures — the
-  standard XAU/USD proxy).
-- **Fallback:** TwelveData `XAU/USD` (gold spot) when Yahoo is rate-limited or
-  unavailable. Set the key with `TWELVEDATA_API_KEY` (a default key is
-  bundled). The active source is shown in every report.
+- **Sole source:** TwelveData `XAU/USD` (gold spot). Set the key with
+  `TWELVEDATA_API_KEY` (a default demo key is bundled). Use a real key for
+  live data — the demo key returns delayed/capped data.
 - Results are cached to disk (`~/.cache/goldsetup`) with per-timeframe TTLs
   (1m 30s, 5m 60s, 15m 3m, 1h 15m). `--realtime` bypasses the cache.
 
@@ -207,7 +205,7 @@ API (same-origin JSON): `/api/overview`, `/api/health`.
 ```text
 goldsetup/
 ├── cli.py         # argparse entry point (fetch 5m/15m/1h, run scan, report)
-├── data.py        # Yahoo Finance + TwelveData fetchers, disk cache
+├── data.py        # TwelveData fetcher, disk cache, shared constants
 ├── indicators.py  # technical indicators (stdlib only)
 ├── analysis.py    # market-structure engine + unfilled-FVG / session-range helpers
 ├── scalper.py     # the two institutional scalping strategies + scan()

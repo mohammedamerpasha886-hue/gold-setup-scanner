@@ -255,7 +255,7 @@ def test_report_uses_exact_scanner_banner():
     a = analyse(candles)
     s = _fake_setup()
     text = report.render_report(candles, a, [s], "5m", 10000.0, 1.0,
-                                source="yahoo", no_color=True)
+                                source="twelvedata", no_color=True)
     lines = text.splitlines()
     assert lines[0] == "=" * 50
     assert lines[1].startswith("🚀 XAU/USD SETUP SCANNER REPORT [")

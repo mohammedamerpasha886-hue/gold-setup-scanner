@@ -83,7 +83,7 @@ def send_message(text: str, token: str | None = None, chat: str | None = None) -
     return True
 
 
-def format_setup_message(s: Setup, source: str = "yahoo", utc: str = "") -> str:
+def format_setup_message(s: Setup, source: str = "twelvedata", utc: str = "") -> str:
     dir_str = "LONG" if s.direction == "BUY" else "SHORT"
     lines = [
         f"🚀 XAU/USD TRADE SETUP FOUND [{utc}]",
@@ -107,7 +107,7 @@ def format_setup_message(s: Setup, source: str = "yahoo", utc: str = "") -> str:
     return "\n".join(lines)
 
 
-def format_no_setup(price: float, utc: str = "", source: str = "yahoo") -> str:
+def format_no_setup(price: float, utc: str = "", source: str = "twelvedata") -> str:
     return (
         f"🔎 XAU/USD scan [{utc}] — no qualifying setup (R:R floors not met).\n"
         f"Last {price:,.2f} · data {source}"

@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36"
-SYMBOL = "GC=F"
-BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}"
 VALID_INTERVALS = ("1m", "5m", "15m", "1h")
 VALID_RANGES = ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max")
 
@@ -22,7 +20,7 @@ TD_INTERVALS = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h"}
 TD_RANGE_OUTPUT = {"1d": 700, "5d": 2500, "1mo": 5000, "3mo": 5000, "6mo": 5000,
                    "1y": 5000, "2y": 5000, "5y": 5000, "max": 5000}
 
-LAST_SOURCE = "yahoo"
+LAST_SOURCE = "twelvedata"
 
 DEFAULT_CACHE_TTL = {
     "1m": 30,
@@ -104,38 +102,6 @@ def _save_cache(cache_dir: str, interval: str, rng: str, candles: list[Candle]) 
         pass
 
 
-def _fetch_yahoo(interval: str, rng: str) -> list[Candle]:
-    url = f"{BASE_URL.format(SYMBOL)}?range={rng}&interval={interval}"
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.load(resp)
-
-    result = payload["chart"]["result"]
-    if not result:
-        raise RuntimeError("No chart data returned")
-    meta = result[0]["meta"]
-    timestamps = result[0].get("timestamp") or []
-    quote = result[0]["indicators"]["quote"][0]
-
-    candles: list[Candle] = []
-    for i, ts in enumerate(timestamps):
-        try:
-            o = quote["open"][i]
-            h = quote["high"][i]
-            l = quote["low"][i]
-            c = quote["close"][i]
-            v = quote["volume"][i]
-        except (TypeError, IndexError, KeyError):
-            continue
-        if None in (o, h, l, c):
-            continue
-        candles.append(Candle(int(ts), float(o), float(h), float(l), float(c), float(v or 0.0)))
-
-    if not candles:
-        raise RuntimeError("Chart payload contained no usable candles")
-    return candles
-
-
 def _parse_td_dt(stamp: str) -> int:
     try:
         return int(datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
@@ -173,18 +139,9 @@ def _fetch_twelvedata(interval: str, rng: str) -> list[Candle]:
 
 def _fetch_remote(interval: str, rng: str) -> list[Candle]:
     global LAST_SOURCE
-    try:
-        candles = _fetch_yahoo(interval, rng)
-        LAST_SOURCE = "yahoo"
-        return candles
-    except Exception as yahoo_err:
-        try:
-            candles = _fetch_twelvedata(interval, rng)
-            LAST_SOURCE = "twelvedata"
-            return candles
-        except Exception as td_err:
-            raise RuntimeError(
-                f"Yahoo failed ({yahoo_err}); TwelveData fallback failed ({td_err})") from td_err
+    candles = _fetch_twelvedata(interval, rng)
+    LAST_SOURCE = "twelvedata"
+    return candles
 
 
 def fetch_candles(interval: str = "1d", rng: str = "1y", cache: bool = True,

@@ -1,20 +1,20 @@
 # Architecture
 
 ## 1. System Overview
-- **Status:** Accepted (v0.6.0)
+- **Status:** Accepted (v0.8.1)
 - **Description:** A zero-dependency Python CLI + web dashboard that fetches
-  realtime XAU/USD data (Yahoo primary, TwelveData fallback), runs a
-  market-structure analysis, and scans for two institutional scalping setups —
-  Multi-Timeframe FVG + EMA Pullback and Session Liquidity Sweep & CHoCH —
-  each gated by strict structural filters and a risk-to-reward floor. Setups
-  are only emitted when they qualify. Data flows one-way from a price feed into
-  a deterministic analysis pipeline with no persistence beyond a short-lived
-  on-disk cache.
+  realtime XAU/USD data (TwelveData, sole source), runs a
+  market-structure analysis, and scans for five institutional scalping setups —
+  Multi-Timeframe FVG + EMA Pullback, Session Liquidity Sweep & CHoCH,
+  Order Block Retest + RSI Divergence, Asian Range Breakout, and Supply/Demand
+  Zone Flip — each gated by strict structural filters and a risk-to-reward
+  floor. Setups are only emitted when they qualify. Data flows one-way from a
+  price feed into a deterministic analysis pipeline with no persistence beyond
+  a short-lived on-disk cache.
 
 ## 2. Component Breakdown
 ```text
-Yahoo Finance chart API (GC=F) ── fallback ──► TwelveData (XAU/USD)
-        │  HTTP GET (cached to ~/.cache/goldsetup, TTL per interval)
+TwelveData (XAU/USD) ──► cached HTTP GET (~/.cache/goldsetup, TTL per interval)
         ▼
 goldsetup/data.py ── Candle list ──► goldsetup/indicators.py
                                             │  EMA, SMA, RSI, MACD, ATR, ADX,
@@ -43,8 +43,8 @@ goldsetup/data.py ── Candle list ──► goldsetup/indicators.py
 ## 3. Data Flow
 1. `cli.main()` parses args, resolves interval→default range.
 2. `data.fetch_candles()` returns OHLCV candles for 5m (execution), 15m
-   (liquidity/confluence) and 1h (macro filter) from Yahoo, falling back to
-   TwelveData on failure; disk cache TTL (1m:30s, 5m:60s, 15m:180s, 1h:900s).
+   (liquidity/confluence) and 1h (macro filter) from TwelveData; disk cache
+   TTL (1m:30s, 5m:60s, 15m:180s, 1h:900s).
 3. `analysis.analyse()` computes indicators + market-structure features and
    classifies the regime; `unfilled_fvgs()` and `session_range()` feed the
    strategies.
@@ -76,5 +76,4 @@ goldsetup/data.py ── Candle list ──► goldsetup/indicators.py
 - Runs anywhere with Python ≥ 3.10; standard library only.
 - Installed via `pip install .` (provides `gold-setup`) or run directly with
   `./gold-setup.py` / `python -m goldsetup.cli`.
-- Network egress to `query1.finance.yahoo.com` and `api.twelvedata.com` are the
-  only external dependencies.
+- Network egress to `api.twelvedata.com` is the only external dependency.
