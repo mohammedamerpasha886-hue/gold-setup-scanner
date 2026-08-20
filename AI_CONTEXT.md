@@ -18,7 +18,7 @@
 
 ## Data Sources
 - **Primary:** Yahoo Finance chart API `GC=F` (COMEX gold futures).
-- **Fallback:** TwelveData `XAU/USD` (gold spot) — used automatically when Yahoo is rate-limited or fails. API key via `TWELVEDATA_API_KEY` (bundled default). Active source exposed as `data.LAST_SOURCE` and shown in every report.
+- **Fallback:** TwelveData `XAU/USD` (gold spot) — used automatically when Yahoo is rate-limited or fails. API key via the `TWELVEDATA_API_KEY` environment variable (no key is bundled in the repo). Active source exposed as `data.LAST_SOURCE` and shown in every report.
 - **Intervals:** `1m`, `5m`, `15m`, `1h` only (default `5m`). Higher timeframes removed by user request.
 - **Ranges:** `1m`→`5d`, `5m`→`1d`, `15m`→`5d`, `1h`→`1mo` (auto).
 - **Cache TTLs:** 1m 30s, 5m 60s, 15m 3m, 1h 15m. `--realtime` / `--no-cache` bypasses cache.

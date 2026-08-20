@@ -28,8 +28,8 @@ python3 tests/run_tests.py            # run the test suite (no deps required)
 - **Primary:** Yahoo Finance chart API (`GC=F`, COMEX gold futures — the
   standard XAU/USD proxy).
 - **Fallback:** TwelveData `XAU/USD` (gold spot) when Yahoo is rate-limited or
-  unavailable. Set the key with `TWELVEDATA_API_KEY` (a default key is
-  bundled). The active source is shown in every report.
+  unavailable. Set the key with the `TWELVEDATA_API_KEY` environment variable
+  (no key is bundled in the repo). The active source is shown in every report.
 - Results are cached to disk (`~/.cache/goldsetup`) with per-timeframe TTLs
   (1m 30s, 5m 60s, 15m 3m, 1h 15m). `--realtime` bypasses the cache.
 
