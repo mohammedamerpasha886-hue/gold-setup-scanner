@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goldsetup"
+version = "0.1.0"
+description = "XAU/USD (gold) trade setup generator - multi-strategy technical analysis CLI"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[project.scripts]
+gold-setup = "goldsetup.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["goldsetup*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

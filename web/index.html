@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XAU/USD Setup Scanner</title>
+<style>
+  :root {
+    --bg:#0f172a; --panel:#1e293b; --panel2:#172033; --border:#334155;
+    --text:#e2e8f0; --muted:#94a3b8; --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+    --blue:#38bdf8; --teal:#2dd4bf;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; padding:16px; }
+  .wrap { max-width:1200px; margin:0 auto; display:grid; gap:14px; }
+  header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  h1 { font-size:18px; font-weight:700; }
+  .price { font-size:22px; font-weight:700; }
+  .muted { color:var(--muted); }
+  .up { color:var(--green); } .down { color:var(--red); }
+  .controls { display:flex; gap:10px; align-items:end; flex-wrap:wrap; background:var(--panel); border:1px solid var(--border); padding:12px; border-radius:10px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  select, input, button { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 10px; font:inherit; }
+  button { cursor:pointer; background:#334155; }
+  button:hover { background:#475569; }
+  button.primary { background:var(--blue); color:#0f172a; font-weight:700; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+  @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:10px; }
+  .chip { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+  .chip.buy { background:rgba(34,197,94,.15); color:var(--green); }
+  .chip.sell { background:rgba(239,68,68,.15); color:var(--red); }
+  .chip.range { background:rgba(245,158,11,.15); color:var(--amber); }
+  .chip.ok { background:rgba(34,197,94,.15); color:var(--green); }
+  .chip.no { background:rgba(239,68,68,.15); color:var(--red); }
+  .setup { border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:10px; background:var(--panel2); }
+  .setup h3 { font-size:15px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .levels { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:10px 0; }
+  .levels .lbl { font-size:10px; color:var(--muted); text-transform:uppercase; }
+  .levels .val { font-size:15px; font-weight:700; }
+  .levels .val.stop { color:var(--red); } .levels .val.tp { color:var(--green); }
+  .meta { font-size:12px; color:var(--muted); }
+  .evidence { font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5; }
+  .evidence li { margin-left:16px; }
+  .empty { color:var(--amber); padding:14px; }
+  .analysis { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; }
+  .analysis b { color:var(--blue); }
+  .toast { position:fixed; bottom:16px; right:16px; background:var(--panel2); border:1px solid var(--border); padding:10px 14px; border-radius:8px; display:none; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:sp 1s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>XAU/USD <span class="muted">(GC=F)</span> Setup Scanner</h1>
+      <div class="muted" id="subtitle">loading…</div>
+    </div>
+    <div style="text-align:right">
+      <div class="price" id="price">—</div>
+      <div class="muted" id="change">—</div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="field"><label>Timeframe</label>
+      <select id="interval"><option>1m</option><option selected>5m</option><option>15m</option><option>1h</option></select></div>
+    <div class="field"><label>Account (USD)</label><input id="account" type="number" value="10000"></div>
+    <div class="field"><label>Risk %</label><input id="risk" type="number" step="0.5" value="1"></div>
+    <div class="field"><label>&nbsp;</label><button id="refresh" class="primary">Refresh</button></div>
+    <div class="field"><label>&nbsp;</label><button id="auto"><span id="auto_txt">Auto: on</span></button></div>
+    <div class="field"><label>&nbsp;</label><button id="live" class="primary"><span id="live_txt">Live: off</span></button></div>
+  </div>
+
+  <div class="card"><h2>Market Snapshot</h2><div class="analysis" id="analysis">—</div></div>
+
+  <div class="grid">
+    <div class="card"><h2>Setup Scan</h2><div id="setups"><div class="muted">loading…</div></div></div>
+    <div class="card"><h2>Chart <span class="muted" id="chart_label"></span></h2><div id="chart"></div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let autoTimer = null;
+let _liveState = false;
+function liveOn(v) { if (v !== undefined) _liveState = v; return _liveState; }
+
+function fmt(n, d) {
+  if (n === null || n === undefined) return "—";
+  return Number(n).toLocaleString("en-US", {minimumFractionDigits:d||2, maximumFractionDigits:d||2});
+}
+
+function toast(msg, ms) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms||2500);
+}
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+function currentParams(extra) {
+  const p = {
+    interval: $("interval").value,
+    account: $("account").value,
+    risk: $("risk").value,
+    realtime: liveOn() ? "1" : "0",
+  };
+  return new URLSearchParams({...p, ...extra}).toString();
+}
+
+function loadOverview() {
+  return getJSON("/api/overview?" + currentParams()).then(d => renderOverview(d)).catch(e => toast("Error: " + e.message));
+}
+
+function renderOverview(d) {
+  const last = d.last, prev = d.previous_close;
+  const chg = prev ? last - prev : 0, pct = prev ? (chg/prev*100) : 0;
+  const dirClass = chg >= 0 ? "up" : "down";
+  $("price").textContent = fmt(last);
+  $("change").textContent = `Change ${chg>=0?"+":""}${fmt(chg)} (${pct>=0?"+":""}${fmt(pct)})% · ${new Date(d.timestamp*1000).toISOString().replace("T"," ").slice(0,16)} UTC`;
+  $("subtitle").textContent = `${d.interval.toUpperCase()}${d.realtime ? " · LIVE" : ""} · data ${d.source}`;
+
+  const a = d.analysis || {};
+  $("analysis").innerHTML = `
+    Regime: <b class="${(a.regime||'').startsWith('trend-up')||a.regime==='breakout'?'up':'down'}">${(a.regime||"?").toUpperCase()}</b>
+    Structure: <b class="${a.structure==='bullish'?'up':a.structure==='bearish'?'down':'muted'}">${(a.structure||"?").toUpperCase()}</b>
+    ADX: <b>${fmt(a.adx,1)}</b>
+    RSI: <b>${fmt(a.rsi,1)}</b>
+    ATR: <b>${fmt(a.atr)}</b>
+    EMA: <b>${fmt(a.ema["9"])}/${fmt(a.ema["21"])}/${fmt(a.ema["50"])}</b>
+    Support: <b>${fmt(a.support[a.support.length-1])}</b> Resistance: <b>${fmt(a.resistance[0])}</b>
+    Fib 0.618: <b>${fmt(a.fib["0.618"])}</b>${a.breakout?` · <span class="chip ${a.breakout.valid?'ok':'no'}">${a.breakout.valid?"breakout":"FAKEOUT"} ${a.breakout.direction}</span>`:""}
+    ${a.sweep?`<span class="chip ${a.sweep.direction==='bullish'?'ok':'no'}">sweep ${a.sweep.direction}</span>`:""}
+    ${a.choch?`<span class="chip ${a.choch.direction==='BUY'?'ok':'no'}">CHoCH ${a.choch.direction}</span>`:""}`;
+
+  renderSetups(d.setups);
+  renderChart(d.candles, d.setups && d.setups[0]);
+}
+
+function renderSetups(setups) {
+  const el = $("setups");
+  if (!setups || !setups.length) { el.innerHTML = '<div class="empty">no qualifying setup right now (R:R floors not met)</div>'; return; }
+  el.innerHTML = setups.map(s => {
+    const p = s.probability || 0;
+    const probClass = p >= 0.55 ? "ok" : (p >= 0.45 ? "range" : "no");
+    const isLong = s.direction === "LONG";
+    return `
+    <div class="setup">
+      <h3><span class="chip ${isLong?'buy':'sell'}">${s.direction}</span>
+        <span>${s.strategy}</span>
+        <span class="chip ${probClass}">prob ${(p*100).toFixed(0)}%</span>
+        <span class="muted" style="font-size:12px;font-weight:400">R:R 1:${Number(s.rr).toFixed(2)}</span></h3>
+      <div class="levels">
+        <div><div class="lbl">Entry</div><div class="val">${fmt(s.entry)}</div></div>
+        <div><div class="lbl">Stop</div><div class="val stop">${fmt(s.stop)}</div></div>
+        <div><div class="lbl">Target</div><div class="val tp">${fmt(s.take_profit)}</div></div>
+        <div><div class="lbl">Size</div><div class="val">${fmt(s.position_lots,3)} lots</div></div>
+      </div>
+      <div class="meta">${s.timeframe} · ${fmt(s.position_oz)} oz · risk ${fmt(s.risk_amount)} USD · reward ${fmt(s.reward_amount)} USD</div>
+      <div class="evidence"><ul>${s.evidence.map(e => `<li>${e}</li>`).join("")}</ul></div>
+    </div>`;
+  }).join("");
+}
+
+function renderChart(candles, setup) {
+  const el = $("chart");
+  if (!candles || candles.length < 2) { el.innerHTML = '<div class="muted">insufficient data</div>'; return; }
+  $("chart_label").textContent = `last ${candles.length} ${$("interval").value.toUpperCase()} candles`;
+  el.innerHTML = candleSVG(candles, setup);
+}
+
+function candleSVG(candles, setup) {
+  const W = 600, H = 360, pad = {t:18, r:70, b:24, l:10};
+  const n = candles.length;
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  const vals = [];
+  candles.forEach(c => vals.push(c.low, c.high));
+  if (setup) vals.push(setup.entry, setup.stop, setup.take_profit);
+  let min = Math.min(...vals), max = Math.max(...vals);
+  const range = (max - min) || 1; min -= range*0.05; max += range*0.05;
+  const step = plotW / n, bw = Math.max(1, step*0.55);
+  const X = i => pad.l + step*i + step/2;
+  const Y = v => pad.t + plotH - ((v - min)/(max - min))*plotH;
+  let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  s += `<rect x="0" y="0" width="${W}" height="${H}" fill="#172033" rx="8"/>`;
+  const gridY = 5;
+  for (let g = 0; g <= gridY; g++) {
+    const v = min + (max-min)*g/gridY, y = Y(v);
+    s += `<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#1e293b" stroke-width="1"/>`;
+    s += `<text x="${W-pad.r+6}" y="${y+4}" fill="#64748b" font-size="11">${fmt(v,0)}</text>`;
+  }
+  candles.forEach((c, i) => {
+    const up = c.c >= c.o;
+    const col = up ? "#22c55e" : "#ef4444";
+    const x = X(i);
+    const yO = Y(c.o), yC = Y(c.c), yH = Y(c.h), yL = Y(c.l);
+    s += `<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1" opacity="0.9"/>`;
+    const bodyY = Math.min(yO, yC), bodyH = Math.max(1, Math.abs(yO - yC));
+    s += `<rect x="${x-bw/2}" y="${bodyY}" width="${bw}" height="${bodyH}" fill="${col}" opacity="0.9"/>`;
+  });
+  const levels = setup ? [
+    [setup.entry, "#38bdf8", "ENTRY"],
+    [setup.stop, "#ef4444", "SL"],
+    [setup.take_profit, "#22c55e", "TP"],
+  ] : [];
+  levels.forEach(([v, col, lbl]) => {
+    const y = Y(v);
+    s += `<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="${col}" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+    s += `<text x="${pad.l+4}" y="${y-4}" fill="${col}" font-size="11" font-weight="700">${lbl} ${fmt(v)}</text>`;
+  });
+  const lastX = X(n-1), lastC = candles[n-1].c;
+  s += `<circle cx="${lastX}" cy="${Y(lastC)}" r="3" fill="#f59e0b"/>`;
+  s += `<text x="${lastX-30}" y="${Y(lastC)-8}" fill="#f59e0b" font-size="11" font-weight="700">${fmt(lastC)}</text>`;
+  s += `</svg>`;
+  return s;
+}
+
+function toggleAuto() {
+  const on = !autoOnState();
+  autoOnState(on);
+  $("auto_txt").textContent = "Auto: " + (on ? "on" : "off");
+  if (on) { startAuto(); loadOverview(); } else stopAuto();
+}
+function toggleLive() {
+  const on = !liveOn();
+  liveOn(on);
+  $("live_txt").textContent = "Live: " + (on ? "on" : "off");
+  stopAuto(); startAuto(); loadOverview();
+  toast(on ? "Live mode: fresh data every 15s" : "Live mode off");
+}
+let _autoState = true;
+function autoOnState(v) { if (v !== undefined) _autoState = v; return _autoState; }
+function startAuto() { if (autoTimer) return; autoTimer = setInterval(loadOverview, liveOn() ? 15000 : 60000); }
+function stopAuto() { clearInterval(autoTimer); autoTimer = null; }
+
+$("refresh").onclick = () => loadOverview().then(() => toast("Updated"));
+$("auto").onclick = toggleAuto;
+$("live").onclick = toggleLive;
+["interval","account","risk"].forEach(id => $(id).onchange = loadOverview);
+
+startAuto();
+loadOverview();
+</script>
+</body>
+</html>
