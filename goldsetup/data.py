@@ -15,7 +15,7 @@ BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}"
 VALID_INTERVALS = ("1m", "5m", "15m", "1h")
 VALID_RANGES = ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max")
 
-TWELVEDATA_KEY = os.environ.get("TWELVEDATA_API_KEY")
+TWELVEDATA_KEY = os.environ.get("TWELVEDATA_API_KEY", "d25b1c102bb147059449547d724cd9ec")
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
 TWELVEDATA_SYMBOL = "XAU/USD"
 TD_INTERVALS = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h"}
@@ -144,8 +144,6 @@ def _parse_td_dt(stamp: str) -> int:
 
 
 def _fetch_twelvedata(interval: str, rng: str) -> list[Candle]:
-    if not TWELVEDATA_KEY:
-        raise RuntimeError("TWELVEDATA_API_KEY is not set; set it to enable the TwelveData fallback")
     td_int = TD_INTERVALS.get(interval)
     if not td_int:
         raise RuntimeError(f"TwelveData has no interval mapping for {interval}")

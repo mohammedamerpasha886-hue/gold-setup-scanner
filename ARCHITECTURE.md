@@ -54,6 +54,9 @@ goldsetup/data.py ── Candle list ──► goldsetup/indicators.py
 5. Report is rendered to stdout as the structured scanner report or JSON.
 6. `goldsetup/web.py` wraps the same pipeline in a JSON API and serves a
    self-contained dashboard UI.
+7. `goldsetup/watch.py` runs the same scan on a loop and pushes qualifying
+   setups (or 4-hourly heartbeats) to Telegram via `goldsetup/telegram.py`;
+   `--watch --daemon` runs it as a detached process (pid/log in the cache dir).
 
 ## 4. Security & Authentication
 - TwelveData API key (`TWELVEDATA_API_KEY`) is a data-provider credential, not

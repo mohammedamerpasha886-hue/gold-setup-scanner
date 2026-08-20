@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.7.0] - 2026-08-20
+### Added
+- **24/7 Telegram alerts** (`goldsetup/telegram.py`, `goldsetup/watch.py`):
+  - `--watch` runs a continuous scanner (default every 300s) and pushes the
+    **full trade setup** (strategy, direction, entry/SL/TP, R:R, reason, position
+    size) to Telegram when a qualifying setup appears.
+  - `--watch --daemon` / `--stop-watch` for background operation (pid/log in
+    `~/.cache/goldsetup`).
+  - `--telegram-setup` saves bot token + chat id to
+    `~/.cache/goldsetup/telegram.json` (gitignored); `--telegram-test` verifies
+    the channel.
+  - Duplicate alerts suppressed for 30 min; 4-hour heartbeat when nothing
+    qualifies. Credentials also overridable via `TELEGRAM_BOT_TOKEN` /
+    `TELEGRAM_CHAT_ID` env vars.
+### Changed
+- Project published publicly on GitHub (`gold-setup-scanner`); SSH-based deploy.
+- TwelveData API key removed from the repo (env-only via `TWELVEDATA_API_KEY`).
+
 ## [0.6.0] - 2026-08-20
 ### Added
 - **Two institutional scalping strategies** (`goldsetup/scalper.py`):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from . import __version__, data, report
@@ -35,10 +36,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="dashboard bind host (with --serve)")
     p.add_argument("--port", type=int, default=8080, help="dashboard port (with --serve)")
     p.add_argument("--daemon", action="store_true",
-                   help="with --serve: detach and run the dashboard in the background")
-    p.add_argument("--log", default=None, help="log file (with --serve --daemon)")
-    p.add_argument("--pid", default=None, help="pid file (with --serve --daemon)")
+                   help="with --serve/--watch: detach and run in the background")
+    p.add_argument("--log", default=None, help="log file (with --serve/--watch --daemon)")
+    p.add_argument("--pid", default=None, help="pid file (with --serve/--watch --daemon)")
     p.add_argument("--stop", action="store_true", help="stop the running dashboard daemon")
+    p.add_argument("--watch", action="store_true",
+                   help="run the 24/7 scanner that alerts on Telegram when a setup appears")
+    p.add_argument("--watch-interval", type=int, default=300,
+                   help="seconds between scans in --watch mode (default: 300)")
+    p.add_argument("--stop-watch", action="store_true", help="stop the running watch daemon")
+    p.add_argument("--telegram-setup", action="store_true",
+                   help="save Telegram bot token + chat id to the cache dir")
+    p.add_argument("--telegram-test", action="store_true",
+                   help="send a Telegram test message with the current scan result")
+    p.add_argument("--bot-token", default=None, help="Telegram bot token (with --telegram-setup)")
+    p.add_argument("--chat-id", default=None, help="Telegram chat id (with --telegram-setup)")
     p.add_argument("--version", action="version", version=f"gold-setup {__version__}")
     return p
 
@@ -50,6 +62,57 @@ def _fetch(interval: str, rng: str, use_cache: bool, cache_dir: str | None) -> l
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.telegram_setup:
+        from . import telegram
+
+        token = args.bot_token or input("Telegram bot token: ").strip()
+        chat = args.chat_id or input("Telegram chat id: ").strip()
+        if not chat:
+            print("resolving chat id from the latest bot update...", file=sys.stderr)
+            chat = telegram.resolve_chat_id(token)
+            if not chat:
+                print("error: no chat found. Message your bot once on Telegram, then retry.",
+                      file=sys.stderr)
+                return 1
+        telegram.save_config(token, chat)
+        print(f"Telegram configured: chat_id={chat}")
+        return 0
+    if args.telegram_test:
+        from . import telegram
+
+        try:
+            msg = "✅ XAU/USD scanner Telegram test — alert channel is working."
+            if telegram.send_message(msg):
+                print("test message sent (check Telegram)")
+                return 0
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    if args.stop_watch:
+        from .watch import stop_watch
+
+        if stop_watch(args.pid):
+            print("watch stop signal sent")
+        else:
+            print("no running watch daemon found", file=sys.stderr)
+            return 1
+        return 0
+    if args.watch:
+        from .watch import run_watch
+
+        if args.daemon:
+            from .web import _daemonize
+
+            cache_dir = data._default_cache_dir()
+            log_file = args.log or os.path.join(cache_dir, "watch.log")
+            pid_file = args.pid or os.path.join(cache_dir, "watch.pid")
+            _daemonize(log_file)
+            with open(pid_file, "w", encoding="utf-8") as fh:
+                fh.write(str(os.getpid()))
+            print(f"watch daemon started pid={os.getpid()} log={log_file}", flush=True)
+        run_watch(watch_interval=args.watch_interval, account=args.account,
+                  risk_pct=args.risk, cache_dir=args.cache_dir)
+        return 0
     if args.stop:
         from .web import stop_daemon
 

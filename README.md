@@ -20,16 +20,40 @@ python3 tests/run_tests.py            # run the test suite (no deps required)
 ./gold-setup.py --json                # machine-readable output
 ./gold-setup.py --verbose             # show every evidence line
 ./gold-setup.py --serve               # web dashboard at http://127.0.0.1:8080
+./gold-setup.py --watch --daemon      # 24/7 scanner → Telegram alerts
 ./gold-setup.py --help                # all options
 ```
+
+## Telegram Alerts (24/7)
+
+Run the scanner continuously and push the **full trade setup** to Telegram the
+moment a qualifying setup appears:
+
+```bash
+./gold-setup.py --telegram-setup --bot-token BOT_TOKEN --chat-id CHAT_ID   # one-time
+./gold-setup.py --telegram-test        # verify the channel works
+./gold-setup.py --watch --daemon       # start 24/7 scanner in the background
+./gold-setup.py --stop-watch           # stop it
+```
+
+- The bot token comes from [@BotFather](https://t.me/BotFather); the chat id can
+  be auto-resolved (message your bot once, then run `--telegram-setup` without
+  `--chat-id`).
+- `--watch` scans every `--watch-interval` seconds (default 300) and alerts with
+  the full setup (strategy, direction, entry/SL/TP, R:R, reason, position size).
+- Duplicate alerts for the same setup are suppressed for 30 minutes.
+- A heartbeat is sent every 4 hours when nothing qualifies, so you know the
+  scanner is alive.
+- Credentials are stored in `~/.cache/goldsetup/telegram.json` (or set
+  `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` env vars). The file is gitignored.
 
 ## Data
 
 - **Primary:** Yahoo Finance chart API (`GC=F`, COMEX gold futures — the
   standard XAU/USD proxy).
 - **Fallback:** TwelveData `XAU/USD` (gold spot) when Yahoo is rate-limited or
-  unavailable. Set the key with the `TWELVEDATA_API_KEY` environment variable
-  (no key is bundled in the repo). The active source is shown in every report.
+  unavailable. Set the key with `TWELVEDATA_API_KEY` (a default key is
+  bundled). The active source is shown in every report.
 - Results are cached to disk (`~/.cache/goldsetup`) with per-timeframe TTLs
   (1m 30s, 5m 60s, 15m 3m, 1h 15m). `--realtime` bypasses the cache.
 
@@ -126,6 +150,12 @@ API (same-origin JSON): `/api/overview`, `/api/health`.
 | `--no-cache` | off | force a fresh fetch (same as `--realtime`) |
 | `--cache-dir` | auto | override the on-disk cache location |
 | `--verbose` | off | print every evidence line |
+| `--watch` | off | 24/7 scanner that alerts on Telegram |
+| `--watch-interval` | `300` | seconds between scans in `--watch` mode |
+| `--stop-watch` | off | stop the running watch daemon |
+| `--telegram-setup` | off | save bot token + chat id to the cache dir |
+| `--telegram-test` | off | send a Telegram test message |
+| `--bot-token`, `--chat-id` | — | Telegram credentials (with `--telegram-setup`) |
 
 ## Project Layout
 
