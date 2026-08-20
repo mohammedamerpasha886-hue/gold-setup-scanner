@@ -47,6 +47,30 @@ moment a qualifying setup appears:
 - Credentials are stored in `~/.cache/goldsetup/telegram.json` (or set
   `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` env vars). The file is gitignored.
 
+## Host on Railway (24/7 web + alerts)
+
+The repo is ready to deploy to [Railway](https://railway.app) so the dashboard
+**and** the Telegram watcher run 24/7 on a hosted server (no need to keep your
+own device on):
+
+1. Push this repo to GitHub (already done for the public
+   `gold-setup-scanner` repo).
+2. In the Railway dashboard: **New Project → Deploy from GitHub repo** → pick the
+   repo. Railway reads `Procfile` + `railway.json` automatically (no build step,
+   stdlib-only).
+3. Add these **Variables** in the service settings:
+   - `TWELVEDATA_API_KEY` — your real key (optional; the bundled demo key is the
+     fallback, switch it later)
+   - `TELEGRAM_BOT_TOKEN` — your bot token (from @BotFather)
+   - `TELEGRAM_CHAT_ID` — your chat id
+   - `ACCOUNT` / `RISK_PCT` / `WATCH_INTERVAL` — optional sizing/tuning knobs
+4. Deploy. The service starts `python3 gold-setup.py --serve --host 0.0.0.0
+   --port $PORT --watch-alerts`, so the dashboard is served **and** the setup
+   watcher pushes qualifying setups to Telegram. Railway checks `/api/health`.
+
+Railway also lets you attach a domain (Settings → Networking → Generate Domain)
+for a public dashboard URL.
+
 ## Data
 
 - **Primary:** Yahoo Finance chart API (`GC=F`, COMEX gold futures — the
@@ -77,7 +101,7 @@ The engine computes the full tape and prints the regime it sees:
 
 ## How a Setup Is Chosen
 
-The scanner runs two institutional scalping strategies (executed on 5m candles)
+The scanner runs five institutional scalping strategies (executed on 5m candles)
 and returns every setup that satisfies all of its filters and its R:R floor.
 Unlike the old always-return-a-trade advisor, **no setup is forced**: if nothing
 qualifies, the report says so and shows the market snapshot instead.
@@ -101,6 +125,27 @@ qualifies, the report says so and shows the market snapshot instead.
 4. Enter on the retracement into the discount/premium (50%) zone of the breakout
    candle; stop beyond the extreme wick tip; target the opposite side of the
    intraday range. **Discard if R:R < 1:3.**
+
+**Strategy 3 — Order Block Retest + RSI Divergence (reversal):**
+1. 5M RSI divergence: a lower low with a higher RSI print (bullish; mirrored).
+2. Price retests a recent **institutional order block** from the wrong side.
+3. Stop beyond the block's extreme (or the nearest swing) + ATR buffer; target
+   the nearest 15M/1H liquidity pool. **Discard if R:R < 1:2.5.**
+
+**Strategy 4 — Asian Range Breakout (London Open, momentum):**
+1. Active 07:00–10:00 UTC; the Asian range = the current day's 00:00–06:59
+   high/low.
+2. A candle closes **outside** the range with ADX ≥ 15 and RSI beyond 50.
+3. Entry on the retracement into the fresh breakout FVG; stop below the broken
+   range edge; target a measured move equal to the range width.
+   **Discard if R:R < 1:2.**
+
+**Strategy 5 — Supply/Demand Zone Flip + Retest (continuation):**
+1. A high-strength **demand/supply zone** is retested from the flipped side.
+2. RSI ≥ 40 (longs) with bullish structure or RSI divergence (mirrored for
+   shorts).
+3. Stop beyond the zone + ATR buffer; target nearest 15M/1H liquidity.
+   **Discard if R:R < 1:2.5.**
 
 Each qualifying setup is sized as `oz = (balance × risk%) ÷ (entry − stop)`,
 reported in lots (1 lot = 100 oz) with risk/reward USD.

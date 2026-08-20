@@ -3,7 +3,7 @@
 ## Project Identity & Purpose
 - **Project Name:** MyApp
 - **Purpose:** A persistent, AI-provider-independent coding workspace designed to maintain continuous context across different AI sessions, models, and coding agents via version-controlled project documentation and Git history.
-- **Current Application:** A zero-dependency Python CLI + web dashboard that fetches **realtime** XAU/USD (gold) price data, runs a market-structure analysis, and scans for two institutional scalping setups — Multi-Timeframe FVG + EMA Pullback and Session Liquidity Sweep & CHoCH — with strict structural filters and risk-to-reward floors. Backtesting and the always-return-a-setup advisor have been removed by user request.
+- **Current Application:** A zero-dependency Python CLI + web dashboard that fetches **realtime** XAU/USD (gold) price data, runs a market-structure analysis, and scans for **five institutional scalping setups** — Multi-Timeframe FVG + EMA Pullback, Session Sweep & CHoCH, Order Block Retest + RSI Divergence, Asian Range Breakout, and Supply/Demand Zone Flip — with strict structural filters and risk-to-reward floors. It runs 24/7 and pushes qualifying setups to Telegram (locally or embedded in a hosted Railway server). Backtesting and the always-return-a-setup advisor have been removed by user request.
 
 ## Current Project Status
 - **Phase:** Application Implementation
@@ -14,7 +14,7 @@
 - **Languages:** Python ≥ 3.10 (standard library only — no pip, pandas, numpy, or rich available in the dev environment)
 - **Frameworks:** None (argparse CLI, dataclasses, urllib, http.server)
 - **Databases/Storage:** On-disk JSON cache at `~/.cache/goldsetup` (TTL per interval)
-- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 54 passing)
+- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 60 passing)
 
 ## Data Sources
 - **Primary:** Yahoo Finance chart API `GC=F` (COMEX gold futures).
@@ -34,7 +34,7 @@ MyApp/
 │   ├── data.py              # Yahoo/TwelveData fetchers + disk cache + shared constants + MTF helpers
 │   ├── indicators.py        # EMA, SMA, RSI, MACD, ATR, ADX, Bollinger, Stochastic, Donchian, pivots, swings, patterns
 │   ├── analysis.py          # market-structure engine + unfilled-FVG / session-range helpers
-│   ├── scalper.py           # the two institutional scalping strategies + scan() orchestration
+│   ├── scalper.py           # the five institutional scalping strategies + scan() orchestration
 │   ├── telegram.py          # Telegram Bot API integration (alerts, config in cache dir)
 │   ├── watch.py             # 24/7 scanner loop → Telegram alerts (dedup + heartbeat)
 │   ├── setup.py             # Setup dataclass + position sizing
@@ -44,7 +44,7 @@ MyApp/
 ├── tests/
 │   ├── conftest.py          # candle factories + assert helpers
 │   ├── run_tests.py         # zero-dependency test runner
-│   └── test_*.py            # 48 unit tests
+│   └── test_*.py            # 60 unit tests
 └── *.md                     # project documentation (source of truth)
 ```
 
@@ -60,7 +60,7 @@ MyApp/
 - **General:** Python standard library only; no external dependencies.
 - **Indicators:** All implemented from scratch in `indicators.py`; Wilder smoothing for RSI/ATR/ADX; series are length-aligned lists with `None` padding at the start.
 - **Analysis:** `analysis.py` returns a dataclass `Analysis` with all computed fields + `analysis_json()` for serialization.
-- **Scalper:** `scalper.scan()` runs the two institutional strategies and returns only setups that pass strict structural filters and their R:R floor (FVG+EMA ≥1:2.5, Sweep+CHoCH ≥1:3). No setup is forced when nothing qualifies.
+- **Scalper:** `scalper.scan()` runs the five institutional strategies and returns only setups that pass strict structural filters and their R:R floor (FVG+EMA ≥1:2.5, Sweep+CHoCH ≥1:3, OB+Div ≥1:2.5, Asian Breakout ≥1:2, Zone Flip ≥1:2.5). No setup is forced when nothing qualifies.
 - **Documentation:** Keep documentation synchronized with code changes and Git history.
 
 ## Running the App
@@ -80,4 +80,4 @@ MyApp/
 
 ## Last Updated
 - **Date:** August 20, 2026
-- **Updated By:** AI Agent (v0.7.0 24/7 Telegram alerts; published on GitHub)
+- **Updated By:** AI Agent (v0.8.0 five strategies + Railway hosting; 24/7 Telegram alerts)

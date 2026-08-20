@@ -56,7 +56,13 @@ goldsetup/data.py ── Candle list ──► goldsetup/indicators.py
    self-contained dashboard UI.
 7. `goldsetup/watch.py` runs the same scan on a loop and pushes qualifying
    setups (or 4-hourly heartbeats) to Telegram via `goldsetup/telegram.py`;
-   `--watch --daemon` runs it as a detached process (pid/log in the cache dir).
+   `--watch --daemon` runs it as a detached process (pid/log in the cache dir),
+   or `--serve --watch-alerts` embeds the same watcher as a thread inside the
+   web server (used on Railway for 24/7 hosted alerts).
+8. Railway deployment: `Procfile` + `railway.json` (Nixpacks, no build step);
+   the server binds `$PORT`, exposes `/api/health`, and the env vars
+   `TWELVEDATA_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+   `ACCOUNT`, `RISK_PCT`, `WATCH_INTERVAL` configure data + alerting.
 
 ## 4. Security & Authentication
 - TwelveData API key (`TWELVEDATA_API_KEY`) is a data-provider credential, not

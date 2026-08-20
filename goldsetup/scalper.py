@@ -10,9 +10,15 @@ from .setup import Setup, _position_size
 # Strategy thresholds
 FVG_EMA_MIN_RR = 2.5
 SWEEP_MIN_RR = 3.0
+OB_DIV_MIN_RR = 2.5
+ASIAN_BREAKOUT_MIN_RR = 2.0
+ZONE_FLIP_MIN_RR = 2.5
 SWEEP_LOOKBACK = 8          # hours used to define the pre-sweep swing (Asian/early session)
 LONDON_HOURS = (8, 9)       # 08:00-10:00 UTC
 NY_HOURS = (13, 14, 15)     # 13:00-16:00 UTC
+ASIAN_BREAKOUT_HOURS = (7, 8, 9)   # London open window UTC
+ASIAN_HOUR_CUTOFF = 7              # Asian session = 00:00-06:59 UTC
+ZONE_MAX_AGE = 80                  # max bars old for a supply/demand zone to stay fresh
 ATR_BUFFER = 0.15
 
 
@@ -315,20 +321,270 @@ def strategy_session_sweep_choch(candles_5m: list[Candle], candles_15m: list[Can
     )
 
 
+def _assemble(direction: str, entry: float, sl: float, tp: float, strategy: str,
+              reason: str, evidence: list[str], rr: float, floor: float,
+              balance: float, risk_pct: float) -> Setup:
+    sizing = _position_size(entry, sl, balance, risk_pct)
+    prob = round(min(0.55 + 0.05 * min(rr / floor, 2.0), 0.8), 3)
+    return Setup(
+        direction=direction,
+        confidence=prob,
+        entry=entry,
+        stop=sl,
+        take_profit=tp,
+        rr=round(rr, 2),
+        strategy=strategy,
+        probability=prob,
+        evidence=evidence,
+        rationale=[
+            f"{direction} via {strategy}",
+            "Technical probability ~55% (confluence estimate, not a guarantee)",
+            f"Stop {sl:.2f}  |  Target {tp:.2f}  |  R:R 1:{rr:.2f}",
+            f"Risk {sizing['risk_amount']:.2f} USD at {risk_pct}% of {balance:,.2f} balance",
+        ],
+        position_oz=round(sizing["position_oz"], 2),
+        position_lots=round(sizing["position_lots"], 3),
+        risk_amount=round(sizing["risk_amount"], 2),
+        reward_amount=round(abs(tp - entry) * sizing["position_oz"], 2),
+        confirmed=True,
+        confirm_bias=direction,
+    )
+
+
+def _nearest_liquidity_target(a15: Analysis, a1h: Analysis, direction: str,
+                              price: float) -> float | None:
+    if direction == "LONG":
+        cands = [l for l in a15.liquidity_above + a1h.liquidity_above if l > price]
+        return min(cands) if cands else None
+    cands = [l for l in a15.liquidity_below + a1h.liquidity_below if l < price]
+    return max(cands) if cands else None
+
+
+def strategy_order_block_rsi_divergence(candles_5m: list[Candle], candles_15m: list[Candle],
+                                        candles_1h: list[Candle], balance: float = 10000.0,
+                                        risk_pct: float = 1.0) -> Setup | None:
+    """STRATEGY 3: Order Block Retest + RSI Divergence (Reversal Scalp)."""
+    a5 = analyse(candles_5m)
+    if a5.rsi_div not in ("bullish", "bearish"):
+        return None
+    direction = "LONG" if a5.rsi_div == "bullish" else "SHORT"
+    if direction == "LONG" and a5.structure == "bearish":
+        return None
+    if direction == "SHORT" and a5.structure == "bullish":
+        return None
+
+    last = candles_5m[-1]
+    price = last.close
+    atr = a5.atr or (last.high - last.low)
+    ob = None
+    for z in a5.order_blocks:
+        if len(candles_5m) - z.idx >= 120:
+            continue
+        if direction == "LONG":
+            touched = last.low <= z.hi and last.low >= z.lo * 0.998 and price >= z.lo
+            near = price - z.lo <= 2.5 * atr
+        else:
+            touched = last.high >= z.lo and last.high <= z.hi * 1.002 and price <= z.hi
+            near = z.hi - price <= 2.5 * atr
+        if touched and near:
+            ob = z
+            break
+    if ob is None:
+        return None
+
+    if direction == "LONG":
+        swing_low = _nearest_swing_below(a5, price)
+        sl = (min(ob.lo, swing_low) if swing_low else ob.lo) - ATR_BUFFER * atr
+    else:
+        swing_high = _nearest_swing_above(a5, price)
+        sl = (max(ob.hi, swing_high) if swing_high else ob.hi) + ATR_BUFFER * atr
+    risk = abs(price - sl)
+    if risk <= 0:
+        return None
+
+    a15 = analyse(candles_15m)
+    a1h = analyse(candles_1h)
+    tp = _nearest_liquidity_target(a15, a1h, direction, price)
+    if tp is None or abs(tp - price) < OB_DIV_MIN_RR * risk:
+        return None
+
+    reward = abs(tp - price)
+    rr = reward / risk
+    reason = (
+        f"5M RSI divergence ({a5.rsi_div}) with {a5.structure} structure; "
+        f"price retesting order block {ob.lo:.2f}-{ob.hi:.2f}; "
+        f"SL beyond zone {sl:.2f}, TP {tp:.2f} at 15M/1H liquidity"
+    )
+    return _assemble(direction, price, sl, tp, "Order Block Retest + RSI Divergence",
+                     reason, [
+                         f"5M RSI divergence: {a5.rsi_div}",
+                         f"Structure: {a5.structure}" + (f", CHoCH {a5.choch['direction']}" if a5.choch else ""),
+                         f"Retesting order block {ob.lo:.2f}-{ob.hi:.2f}",
+                         f"SL {sl:.2f} beyond zone; TP {tp:.2f} at 15M/1H liquidity",
+                     ], rr, OB_DIV_MIN_RR, balance, risk_pct)
+
+
+def _asian_range(candles: list[Candle]) -> tuple[float, float] | None:
+    """(high, low) of the current UTC day's Asian session (00:00-06:59)."""
+    day = candles[-1].dt.date()
+    asian = [c for c in candles if c.dt.date() == day and c.dt.hour < ASIAN_HOUR_CUTOFF]
+    if not asian:
+        return None
+    return max(c.high for c in asian), min(c.low for c in asian)
+
+
+def strategy_asian_range_breakout(candles_5m: list[Candle], candles_15m: list[Candle],
+                                  candles_1h: list[Candle], balance: float = 10000.0,
+                                  risk_pct: float = 1.0) -> Setup | None:
+    """STRATEGY 4: Asian Range Breakout on the London Open (Momentum Scalp)."""
+    last = candles_5m[-1]
+    if last.dt.hour not in ASIAN_BREAKOUT_HOURS:
+        return None
+    ar = _asian_range(candles_5m)
+    if ar is None:
+        return None
+    a_hi, a_lo = ar
+    price = last.close
+    if price > a_hi:
+        direction = "LONG"
+    elif price < a_lo:
+        direction = "SHORT"
+    else:
+        return None
+
+    a5 = analyse(candles_5m)
+    if a5.adx is None or a5.adx < 15:
+        return None
+    if direction == "LONG" and (a5.rsi is not None and a5.rsi < 50):
+        return None
+    if direction == "SHORT" and (a5.rsi is not None and a5.rsi > 50):
+        return None
+
+    atr = a5.atr or (last.high - last.low)
+    wanted_kind = "fvg-bullish" if direction == "LONG" else "fvg-bearish"
+    fvg = None
+    for z in unfilled_fvgs(candles_5m):
+        if z.kind != wanted_kind:
+            continue
+        if direction == "LONG":
+            inside = last.low <= z.hi and last.low >= z.lo * 0.998
+        else:
+            inside = last.high >= z.lo and last.high <= z.hi * 1.002
+        if inside:
+            fvg = z
+            break
+    if fvg is None:
+        return None
+
+    range_w = a_hi - a_lo
+    if direction == "LONG":
+        entry, sl = price, a_hi - ATR_BUFFER * atr
+        tp = a_hi + range_w
+    else:
+        entry, sl = price, a_lo + ATR_BUFFER * atr
+        tp = a_lo - range_w
+    if (direction == "LONG" and entry <= sl) or (direction == "SHORT" and entry >= sl):
+        return None
+    risk = abs(entry - sl)
+    reward = abs(tp - entry)
+    if risk <= 0 or reward / risk < ASIAN_BREAKOUT_MIN_RR:
+        return None
+    rr = reward / risk
+    reason = (
+        f"London open breakout of the Asian range {a_lo:.2f}-{a_hi:.2f} "
+        f"(width {range_w:.2f}); retest entry into unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}; "
+        f"ADX {a5.adx:.0f} with MACD {a5.macd_trend}; TP {tp:.2f} = measured move"
+    )
+    return _assemble(direction, entry, sl, tp, "Asian Range Breakout (London Open)",
+                     reason, [
+                         f"Session: London open (UTC {last.dt.strftime('%H:%M')})",
+                         f"Asian range {a_lo:.2f}-{a_hi:.2f} broken {direction.lower()}",
+                         f"Retest of unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}",
+                         f"ADX {a5.adx:.0f}, RSI {(f'{a5.rsi:.0f}' if a5.rsi is not None else 'n/a')}; "
+                         f"TP {tp:.2f} measured move",
+                     ], rr, ASIAN_BREAKOUT_MIN_RR, balance, risk_pct)
+
+
+def _zone_flip_retest(candles: list[Candle], zone, direction: str) -> bool:
+    last = candles[-1]
+    if direction == "LONG":
+        return last.low <= zone.hi and last.low >= zone.lo * 0.998 and last.close > zone.lo
+    return last.high >= zone.lo and last.high <= zone.hi * 1.002 and last.close < zone.hi
+
+
+def strategy_supply_demand_zone_flip(candles_5m: list[Candle], candles_15m: list[Candle],
+                                     candles_1h: list[Candle], balance: float = 10000.0,
+                                     risk_pct: float = 1.0) -> Setup | None:
+    """STRATEGY 5: Broken Supply/Demand Zone Flip + Retest (Continuation Scalp)."""
+    a5 = analyse(candles_5m)
+    last = candles_5m[-1]
+    price = last.close
+    atr = a5.atr or (last.high - last.low)
+    n = len(candles_5m)
+    zones: list[tuple] = []
+    zones += [(z, "LONG") for z in a5.demand if z.strength >= 0.35 and n - z.idx < ZONE_MAX_AGE]
+    zones += [(z, "SHORT") for z in a5.supply if z.strength >= 0.35 and n - z.idx < ZONE_MAX_AGE]
+    for zone, direction in zones:
+        if not _zone_flip_retest(candles_5m, zone, direction):
+            continue
+        if direction == "LONG":
+            if a5.rsi is not None and a5.rsi < 40:
+                continue
+            if not (a5.structure == "bullish" or a5.rsi_div == "bullish"):
+                continue
+        else:
+            if a5.rsi is not None and a5.rsi > 60:
+                continue
+            if not (a5.structure == "bearish" or a5.rsi_div == "bearish"):
+                continue
+        if direction == "LONG":
+            swing_low = _nearest_swing_below(a5, price)
+            sl = (min(zone.lo, swing_low) if swing_low else zone.lo) - ATR_BUFFER * atr
+        else:
+            swing_high = _nearest_swing_above(a5, price)
+            sl = (max(zone.hi, swing_high) if swing_high else zone.hi) + ATR_BUFFER * atr
+        risk = abs(price - sl)
+        if risk <= 0:
+            continue
+        a15 = analyse(candles_15m)
+        a1h = analyse(candles_1h)
+        tp = _nearest_liquidity_target(a15, a1h, direction, price)
+        if tp is None or abs(tp - price) < ZONE_FLIP_MIN_RR * risk:
+            continue
+        reward = abs(tp - price)
+        rr = reward / risk
+        reason = (
+            f"{direction.lower()} retest of flipped {'demand' if direction == 'LONG' else 'supply'} "
+            f"zone {zone.lo:.2f}-{zone.hi:.2f} (strength {zone.strength:.2f}); "
+            f"SL beyond zone {sl:.2f}, TP {tp:.2f} at 15M/1H liquidity"
+        )
+        return _assemble(direction, price, sl, tp,
+                         "Supply/Demand Zone Flip + Retest",
+                         reason, [
+                             f"Flipped {'demand' if direction == 'LONG' else 'supply'} zone {zone.lo:.2f}-{zone.hi:.2f}",
+                             f"Retest with RSI {(f'{a5.rsi:.1f}' if a5.rsi is not None else 'n/a')} / "
+                             f"divergence {a5.rsi_div or 'none'} / structure {a5.structure}",
+                             f"SL {sl:.2f} beyond zone; TP {tp:.2f} at 15M/1H liquidity",
+                         ], rr, ZONE_FLIP_MIN_RR, balance, risk_pct)
+    return None
+
+
 def scan(candles_5m: list[Candle], candles_1h: list[Candle], candles_15m: list[Candle],
          balance: float = 10000.0, risk_pct: float = 1.0) -> list[Setup]:
-    """Run both strategies. Results strictly respect their R:R floors."""
+    """Run all strategies. Results strictly respect their R:R floors."""
     setups: list[Setup] = []
-    try:
-        s1 = strategy_fvg_ema_pullback(candles_5m, candles_1h, candles_15m, balance, risk_pct)
-        if s1 is not None:
-            setups.append(s1)
-    except Exception:
-        pass
-    try:
-        s2 = strategy_session_sweep_choch(candles_5m, candles_15m, balance, risk_pct)
-        if s2 is not None:
-            setups.append(s2)
-    except Exception:
-        pass
+    strategies = (
+        lambda: strategy_fvg_ema_pullback(candles_5m, candles_1h, candles_15m, balance, risk_pct),
+        lambda: strategy_session_sweep_choch(candles_5m, candles_15m, balance, risk_pct),
+        lambda: strategy_order_block_rsi_divergence(candles_5m, candles_15m, candles_1h, balance, risk_pct),
+        lambda: strategy_asian_range_breakout(candles_5m, candles_15m, candles_1h, balance, risk_pct),
+        lambda: strategy_supply_demand_zone_flip(candles_5m, candles_15m, candles_1h, balance, risk_pct),
+    )
+    for fn in strategies:
+        try:
+            s = fn()
+            if s is not None:
+                setups.append(s)
+        except Exception:
+            pass
     return setups

@@ -3,9 +3,14 @@ import math
 from goldsetup import scalper
 from goldsetup.analysis import unfilled_fvgs, session_range
 from goldsetup.data import Candle
-from goldsetup.scalper import (SWEEP_MIN_RR, FVG_EMA_MIN_RR, _choch_after_sweep,
-                               _rsi_reset_bullish, _sweep_on_last_bar,
-                               strategy_fvg_ema_pullback, strategy_session_sweep_choch)
+from goldsetup.scalper import (SWEEP_MIN_RR, FVG_EMA_MIN_RR, OB_DIV_MIN_RR,
+                               ASIAN_BREAKOUT_MIN_RR, ZONE_FLIP_MIN_RR,
+                               _choch_after_sweep, _rsi_reset_bullish,
+                               _sweep_on_last_bar, strategy_fvg_ema_pullback,
+                               strategy_session_sweep_choch,
+                               strategy_order_block_rsi_divergence,
+                               strategy_asian_range_breakout,
+                               strategy_supply_demand_zone_flip)
 from goldsetup import indicators as ind
 from tests.conftest import candles_from_closes, make_5m
 
@@ -186,13 +191,28 @@ def test_strategy2_no_sweep_returns_none():
 
 # ---------------------------------------------------------------- scan orchestrator
 
+FLOOR_BY_STRATEGY = {
+    "Sweep": SWEEP_MIN_RR,
+    "Asian Range Breakout": ASIAN_BREAKOUT_MIN_RR,
+    "Order Block Retest": OB_DIV_MIN_RR,
+    "Supply/Demand Zone Flip": ZONE_FLIP_MIN_RR,
+}
+
+
+def _floor_for(name: str) -> float:
+    for key, floor in FLOOR_BY_STRATEGY.items():
+        if key in name:
+            return floor
+    return FVG_EMA_MIN_RR
+
+
 def test_scan_runs_both_strategies_without_error():
     c1h, candles, c15 = _fvg_pullback_scenario()
     setups = scalper.scan(candles, c1h, c15, balance=10000.0, risk_pct=1.0)
     assert isinstance(setups, list)
     for s in setups:
         assert s.stop is not None and s.take_profit is not None
-        assert s.rr >= (SWEEP_MIN_RR if "Sweep" in s.strategy else FVG_EMA_MIN_RR)
+        assert s.rr >= _floor_for(s.strategy)
         if s.direction == "LONG":
             assert s.stop < s.entry < s.take_profit
         else:
@@ -258,3 +278,104 @@ def test_report_no_setup_message():
     a = analyse(candles)
     text = report.render_report(candles, a, [], "5m", 10000.0, 1.0, no_color=True)
     assert "No qualifying setup" in text
+
+
+# ---------------------------------------------------------------- strategies 3-5
+
+def _ob_div_scenario():
+    """5M: impulse (demand zone + order block), long grind L1 (RSI decay),
+    bounce, sharp dip L2 (lower low + higher RSI = bullish divergence), rally,
+    then a final bar that retests the order block / demand zone from above."""
+    c15 = candles_from_closes([100.5 + 0.3 * i for i in range(40)] + [114, 113, 112, 111, 110])
+    c1h = candles_from_closes([100 + 1.5 * i for i in range(80)])
+    closes = [101 + 0.15 * math.sin(i / 3) for i in range(24)]
+    closes += [101.0, 101.4, 102.6, 104.0]
+    v = 103.6
+    for _ in range(20):
+        closes.append(v)
+        v -= 0.11
+    closes += [102.0, 102.3, 102.6, 102.9, 103.2, 103.4, 103.6, 103.5, 103.6,
+               103.3, 102.9, 102.3, 101.35, 102.1, 102.5, 102.9,
+               102.6, 102.3, 102.2, 102.6]
+    candles = make_5m(closes, hour=10)
+    n = len(candles)
+
+    def cb(i, o, h, l, cl):
+        return Candle(candles[i].timestamp, o, h, l, cl, 1000.0)
+
+    candles[47] = cb(47, 101.55, 101.55, 101.4, 101.45)   # L1 trough
+    candles[48] = cb(48, 101.45, 102.0, 101.85, 102.0)
+    candles[49] = cb(49, 102.0, 102.4, 102.2, 102.3)
+    candles[59] = cb(59, 102.9, 103.0, 102.4, 102.6)
+    candles[60] = cb(60, 102.6, 102.7, 101.35, 101.5)     # L2 low
+    candles[61] = cb(61, 101.5, 102.4, 101.9, 102.3)
+    candles[65] = cb(65, 102.6, 102.7, 102.35, 102.5)
+    candles[66] = cb(66, 102.5, 102.6, 102.3, 102.4)
+    candles[67] = cb(67, 102.4, 102.8, 102.28, 102.6)     # final retest
+    return c1h, candles, c15
+
+
+def _asian_breakout_scenario():
+    """Asian range (00:00-06:59 UTC) around 100, then a London-open breakout
+    above the range with a gap, a retracement into the gap, and a recovery."""
+    closes = [100 + 5 * math.sin(i / 6) for i in range(84)]
+    closes += [104.9, 105.0, 104.9, 104.8, 104.9, 105.0, 104.9, 104.8]
+    candles = make_5m(closes, hour=0)
+    n = len(candles)
+
+    def cb(i, o, h, l, cl):
+        return Candle(candles[i].timestamp, o, h, l, cl, 1000.0)
+
+    candles[n - 6] = cb(n - 6, 104.8, 105.0, 104.6, 104.9)
+    candles[n - 5] = cb(n - 5, 104.9, 106.2, 105.2, 106.1)   # breakout above asian high
+    candles[n - 4] = cb(n - 4, 106.1, 107.3, 105.9, 107.1)
+    candles[n - 3] = cb(n - 3, 107.1, 107.2, 106.4, 106.5)
+    candles[n - 2] = cb(n - 2, 106.5, 106.6, 105.1, 105.3)   # retrace into gap
+    candles[n - 1] = cb(n - 1, 105.3, 107.6, 105.1, 107.4)   # recovery
+    return candles
+
+
+def test_strategy3_order_block_divergence_long():
+    c1h, candles, c15 = _ob_div_scenario()
+    s = strategy_order_block_rsi_divergence(candles, c15, c1h)
+    assert s is not None
+    assert s.direction == "LONG"
+    assert s.stop < s.entry < s.take_profit
+    assert s.rr >= OB_DIV_MIN_RR
+    assert s.strategy == "Order Block Retest + RSI Divergence"
+    assert s.evidence and s.rationale
+
+
+def test_strategy3_none_without_divergence():
+    candles = make_5m([100 + 0.5 * i for i in range(40)], hour=11)
+    assert strategy_order_block_rsi_divergence(candles, candles, candles) is None
+
+
+def test_strategy4_asian_breakout_long():
+    candles = _asian_breakout_scenario()
+    s = strategy_asian_range_breakout(candles, candles, candles)
+    assert s is not None
+    assert s.direction == "LONG"
+    assert s.stop < s.entry < s.take_profit
+    assert s.rr >= ASIAN_BREAKOUT_MIN_RR
+    assert s.strategy == "Asian Range Breakout (London Open)"
+
+
+def test_strategy4_outside_session_returns_none():
+    candles = make_5m([100 + 0.5 * i for i in range(40)], hour=12)
+    assert strategy_asian_range_breakout(candles, candles, candles) is None
+
+
+def test_strategy5_zone_flip_long():
+    c1h, candles, c15 = _ob_div_scenario()
+    s = strategy_supply_demand_zone_flip(candles, c15, c1h)
+    assert s is not None
+    assert s.direction == "LONG"
+    assert s.stop < s.entry < s.take_profit
+    assert s.rr >= ZONE_FLIP_MIN_RR
+    assert s.strategy == "Supply/Demand Zone Flip + Retest"
+
+
+def test_strategy5_none_flat_market():
+    candles = make_5m([100 + 0.2 * math.sin(i) for i in range(40)], hour=11)
+    assert strategy_supply_demand_zone_flip(candles, candles, candles) is None

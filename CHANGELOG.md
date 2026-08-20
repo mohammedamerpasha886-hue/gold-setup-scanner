@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.8.0] - 2026-08-20
+### Added
+- **3 new institutional strategies** (all run every scan, all with strict R:R
+  floors, all covered by the Telegram watcher):
+  - Strategy 3: **Order Block Retest + RSI Divergence** (reversal, ≥1:2.5)
+  - Strategy 4: **Asian Range Breakout on the London Open** (momentum, ≥1:2)
+  - Strategy 5: **Supply/Demand Zone Flip + Retest** (continuation, ≥1:2.5)
+- **Railway hosting support**: `Procfile` + `railway.json` (Nixpacks, `/api/health`
+  healthcheck, `$PORT` env binding) so the dashboard **and** the 24/7 Telegram
+  watcher run on a hosted server via `--watch-alerts` (embedded watcher thread).
+- `PORT` env var honored by `--serve`; `--watch-alerts` flag starts the setup
+  watcher inside the web server process.
+### Changed
+- TwelveData demo key restored as the bundled default in `data.py` (override
+  anytime with the `TWELVEDATA_API_KEY` env var — switch to your real key in the
+  Railway variables).
+- 60 tests passing.
+
 ## [0.7.0] - 2026-08-20
 ### Added
 - **24/7 Telegram alerts** (`goldsetup/telegram.py`, `goldsetup/watch.py`):

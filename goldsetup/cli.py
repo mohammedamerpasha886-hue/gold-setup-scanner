@@ -12,8 +12,9 @@ from .analysis import analyse
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="gold-setup",
-        description="XAU/USD (gold) institutional scalping scanner: MTF FVG+EMA pullback "
-                    "and Session Liquidity Sweep & CHoCH.",
+        description="XAU/USD (gold) institutional scalping scanner: MTF FVG+EMA pullback, "
+                    "Session Sweep & CHoCH, Order Block + RSI Divergence, Asian Range "
+                    "Breakout, and Supply/Demand Zone Flip.",
         epilog="Signals are technical-analysis only and not financial advice.",
     )
     p.add_argument("--interval", choices=data.VALID_INTERVALS, default="5m",
@@ -34,7 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serve", action="store_true",
                    help="start the web dashboard server instead of the CLI report")
     p.add_argument("--host", default="127.0.0.1", help="dashboard bind host (with --serve)")
-    p.add_argument("--port", type=int, default=8080, help="dashboard port (with --serve)")
+    p.add_argument("--port", type=int, default=None,
+                   help="dashboard port (with --serve; defaults to $PORT or 8080)")
+    p.add_argument("--watch-alerts", action="store_true",
+                   help="with --serve: also run the 24/7 Telegram setup watcher in the background")
     p.add_argument("--daemon", action="store_true",
                    help="with --serve/--watch: detach and run in the background")
     p.add_argument("--log", default=None, help="log file (with --serve/--watch --daemon)")
@@ -125,7 +129,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.serve:
         from .web import serve as web_serve
 
-        web_serve(args.host, args.port, daemon=args.daemon, log_file=args.log, pid_file=args.pid)
+        web_serve(args.host, args.port, daemon=args.daemon, log_file=args.log,
+                  pid_file=args.pid, with_watch=args.watch_alerts,
+                  watch_interval=args.watch_interval, account=args.account,
+                  risk_pct=args.risk)
         return 0
     if not (0 < args.risk <= 100):
         print("error: --risk must be in (0, 100]", file=sys.stderr)

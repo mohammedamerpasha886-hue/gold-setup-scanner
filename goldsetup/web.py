@@ -93,8 +93,13 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, target.read_bytes(), ctype)
 
 
-def serve(host: str = "127.0.0.1", port: int = 8080, daemon: bool = False,
-          log_file: str | None = None, pid_file: str | None = None) -> None:
+def serve(host: str = "127.0.0.1", port: int | None = None, daemon: bool = False,
+          log_file: str | None = None, pid_file: str | None = None,
+          with_watch: bool = False, watch_interval: int = 300,
+          account: float = 10000.0, risk_pct: float = 1.0) -> None:
+    import threading
+
+    port = port or int(os.environ.get("PORT") or 8080)
     if daemon:
         log_file = log_file or str(Path(data._default_cache_dir()) / "dashboard.log")
         pid_file = pid_file or str(Path(data._default_cache_dir()) / "dashboard.pid")
@@ -102,6 +107,14 @@ def serve(host: str = "127.0.0.1", port: int = 8080, daemon: bool = False,
         with open(pid_file, "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
         print(f"daemon started pid={os.getpid()} log={log_file}", flush=True)
+    if with_watch:
+        from .watch import run_watch
+
+        def _watch_loop() -> None:
+            run_watch(watch_interval=watch_interval, account=account, risk_pct=risk_pct)
+
+        threading.Thread(target=_watch_loop, name="gold-watch", daemon=True).start()
+        print("Telegram watcher embedded — setup alerts active while the server runs", flush=True)
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f"XAU/USD dashboard running at http://{host}:{port}  (Ctrl+C to stop)", flush=True)
     try:
@@ -154,11 +167,13 @@ def main() -> None:
 
     p = argparse.ArgumentParser(prog="gold-setup-web", description="XAU/USD dashboard server")
     p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--port", type=int, default=None)
     p.add_argument("--daemon", action="store_true", help="detach and run in the background")
     p.add_argument("--log", default=None, help="log file (with --daemon)")
     p.add_argument("--pid", default=None, help="pid file (with --daemon)")
     p.add_argument("--stop", action="store_true", help="stop the running daemon")
+    p.add_argument("--watch-alerts", action="store_true",
+                   help="also run the 24/7 Telegram setup watcher in the background")
     args = p.parse_args()
     if args.stop:
         if stop_daemon(args.pid):
@@ -166,7 +181,8 @@ def main() -> None:
         else:
             print("no running daemon found", file=__import__("sys").stderr)
         return
-    serve(args.host, args.port, daemon=args.daemon, log_file=args.log, pid_file=args.pid)
+    serve(args.host, args.port, daemon=args.daemon, log_file=args.log, pid_file=args.pid,
+          with_watch=args.watch_alerts)
 
 
 if __name__ == "__main__":
