@@ -59,8 +59,6 @@ own device on):
    repo. Railway reads `Procfile` + `railway.json` automatically (no build step,
    stdlib-only).
 3. Add these **Variables** in the service settings:
-   - `TWELVEDATA_API_KEY` — your real key (optional; the bundled demo key is the
-     fallback, switch it later)
    - `TELEGRAM_BOT_TOKEN` — your bot token (from @BotFather)
    - `TELEGRAM_CHAT_ID` — your chat id
    - `ACCOUNT` / `RISK_PCT` / `WATCH_INTERVAL` — optional sizing/tuning knobs
@@ -73,9 +71,13 @@ for a public dashboard URL.
 
 ## Data
 
-- **Sole source:** TwelveData `XAU/USD` (gold spot). Set the key with
-  `TWELVEDATA_API_KEY` (a default demo key is bundled). Use a real key for
-  live data — the demo key returns delayed/capped data.
+- **Sole source:** TwelveData `XAU/USD` (gold spot). A free API key is
+  hardcoded in `goldsetup/data.py` (no env var needed). The free tier can
+  occasionally return a frozen/2-day-old shard; the fetcher retries and rejects
+  stale responses rather than trade on them.
+- Timestamps are auto-calibrated to UTC from the response `Date` header (the
+  feed stamps bars in a UTC+10 exchange timezone) and returned in chronological
+  order (`candles[-1]` = newest bar).
 - Results are cached to disk (`~/.cache/goldsetup`) with per-timeframe TTLs
   (1m 30s, 5m 60s, 15m 3m, 1h 15m). `--realtime` bypasses the cache.
 

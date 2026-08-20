@@ -14,10 +14,13 @@
 - **Languages:** Python ≥ 3.10 (standard library only — no pip, pandas, numpy, or rich available in the dev environment)
 - **Frameworks:** None (argparse CLI, dataclasses, urllib, http.server)
 - **Databases/Storage:** On-disk JSON cache at `~/.cache/goldsetup` (TTL per interval)
-- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 61 passing)
+- **Testing Tools:** Zero-dependency runner `tests/run_tests.py` (pytest-compatible test functions; 65 passing)
 
 ## Data Sources
-- **Sole source:** TwelveData `XAU/USD` (gold spot). API key via `TWELVEDATA_API_KEY` (bundled demo default; use a real key for live data). Active source exposed as `data.LAST_SOURCE` and shown in every report.
+- **Sole source:** TwelveData `XAU/USD` (gold spot). Free key hardcoded in
+  `data.py` (no env var). Active source exposed as `data.LAST_SOURCE` and shown
+  in every report. Bars returned chronological (newest = `candles[-1]`),
+  timestamps calibrated to UTC from the response `Date` header.
 - **Intervals:** `1m`, `5m`, `15m`, `1h` only (default `5m`). Higher timeframes removed by user request.
 - **Ranges:** `1m`→`5d`, `5m`→`1d`, `15m`→`5d`, `1h`→`1mo` (auto).
 - **Cache TTLs:** 1m 30s, 5m 60s, 15m 3m, 1h 15m. `--realtime` / `--no-cache` bypasses cache.
@@ -68,7 +71,8 @@ MyApp/
 - `python3 tests/run_tests.py` — run the full test suite (no install required).
 
 ## Current Known Issues / Blockers
-- TwelveData can rate-limit the free/demo key (HTTP 429) or return delayed data; a real `TWELVEDATA_API_KEY` gives live bars.
+- TwelveData's free key can rate-limit (HTTP 429) or occasionally serve a
+  frozen/2-day-old shard; the fetcher retries up to 3× and rejects stale data.
 - Setup "probability" is a deterministic confluence estimate, not a statistical win rate (backtesting was removed).
 
 ## Important Instructions for AI Agents

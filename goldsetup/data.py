@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import email.utils
 import json
 import os
 import time
@@ -13,7 +14,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrom
 VALID_INTERVALS = ("1m", "5m", "15m", "1h")
 VALID_RANGES = ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max")
 
-TWELVEDATA_KEY = os.environ.get("TWELVEDATA_API_KEY", "d25b1c102bb147059449547d724cd9ec")
+TWELVEDATA_KEY = "9f179a78fb53412cba6181812d239689"
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
 TWELVEDATA_SYMBOL = "XAU/USD"
 TD_INTERVALS = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h"}
@@ -27,6 +28,13 @@ DEFAULT_CACHE_TTL = {
     "5m": 60,
     "15m": 180,
     "1h": 900,
+}
+
+MAX_BAR_AGE_S = {
+    "1m": 600,
+    "5m": 900,
+    "15m": 1800,
+    "1h": 7200,
 }
 
 DEFAULT_RANGES = {"1m": "5d", "5m": "1d", "15m": "5d", "1h": "1mo"}
@@ -102,11 +110,45 @@ def _save_cache(cache_dir: str, interval: str, rng: str, candles: list[Candle]) 
         pass
 
 
-def _parse_td_dt(stamp: str) -> int:
+def _parse_td_dt(stamp: str, offset_s: int = 0) -> int:
     try:
-        return int(datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
+        ts = int(datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
     except ValueError:
-        return int(datetime.strptime(stamp, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        ts = int(datetime.strptime(stamp, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+    return ts + offset_s
+
+
+def _td_server_ts(server_date: str | None) -> float:
+    try:
+        return email.utils.parsedate_to_datetime(server_date).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _td_utc_offset_s(values: list[dict], server_date: str | None) -> int:
+    """TwelveData may stamp bars in a non-UTC exchange timezone (this feed: +10h).
+
+    Returns the offset to ADD to a raw stamp to convert it to UTC. Tests each
+    plausible whole-hour offset and picks the one that makes the newest bar's
+    corrected age fall inside 0..20 minutes (i.e. a fresh, live feed).
+    Returns 0 when the feed is stale/frozen or the header is unavailable.
+    """
+    if not values or not server_date:
+        return 0
+    try:
+        server_ts = email.utils.parsedate_to_datetime(server_date).timestamp()
+        newest = _parse_td_dt(values[0]["datetime"])
+    except (ValueError, TypeError, KeyError, IndexError):
+        return 0
+    best = None
+    best_age = None
+    for hour in range(-14, 15):
+        off = hour * 3600
+        age = server_ts - (newest + off)
+        if -300 <= age <= 1200:  # forming bar (-300) .. completed bar (1200)
+            if best_age is None or abs(age) < best_age:
+                best, best_age = off, abs(age)
+    return best if best is not None else 0
 
 
 def _fetch_twelvedata(interval: str, rng: str) -> list[Candle]:
@@ -120,21 +162,31 @@ def _fetch_twelvedata(interval: str, rng: str) -> list[Candle]:
     })
     req = urllib.request.Request(f"{TWELVEDATA_URL}?{query}",
                                  headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.load(resp)
-    if payload.get("status") != "ok" or "values" not in payload:
-        raise RuntimeError(f"TwelveData error: {payload.get('message') or payload.get('error') or 'bad response'}")
-    candles: list[Candle] = []
-    for v in payload["values"]:  # newest first
-        try:
-            o, h, l, c = float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"])
-            vol = float(v.get("volume") or 0.0)
-        except (KeyError, TypeError, ValueError):
-            continue
-        candles.append(Candle(_parse_td_dt(v["datetime"]), o, h, l, c, vol))
-    if not candles:
-        raise RuntimeError("TwelveData returned no usable candles")
-    return candles
+    for attempt in range(3):
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.load(resp)
+            server_date = resp.headers.get("Date")
+        if payload.get("status") != "ok" or "values" not in payload:
+            raise RuntimeError(f"TwelveData error: {payload.get('message') or payload.get('error') or 'bad response'}")
+        offset_s = _td_utc_offset_s(payload["values"], server_date)
+        candles: list[Candle] = []
+        for v in reversed(payload["values"]):  # values are newest-first; store chronological
+            try:
+                o, h, l, c = float(v["open"]), float(v["high"]), float(v["low"]), float(v["close"])
+                vol = float(v.get("volume") or 0.0)
+            except (KeyError, TypeError, ValueError):
+                continue
+            candles.append(Candle(_parse_td_dt(v["datetime"], offset_s), o, h, l, c, vol))
+        if not candles:
+            raise RuntimeError("TwelveData returned no usable candles")
+        if server_date and candles[-1].timestamp > _td_server_ts(server_date) - MAX_BAR_AGE_S.get(interval, 3600):
+            return candles
+        time.sleep(1)
+    newest_ts = candles[-1].timestamp
+    age_h = (_td_server_ts(server_date) - newest_ts) / 3600.0 if server_date else float("inf")
+    raise RuntimeError(
+        f"TwelveData kept returning stale data (newest bar {age_h:.1f}h old) — "
+        "feed frozen or demo key capped; retry later")
 
 
 def _fetch_remote(interval: str, rng: str) -> list[Candle]:
