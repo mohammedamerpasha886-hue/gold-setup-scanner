@@ -48,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="run the 24/7 scanner that alerts on Telegram when a setup appears")
     p.add_argument("--watch-interval", type=int, default=300,
                    help="seconds between scans in --watch mode (default: 300)")
+    p.add_argument("--watch-status-interval", type=int, default=1,
+                   help="send a Telegram status message every N scans when no setup "
+                        "is found (default: 1 = every scan; 0 disables status pings)")
     p.add_argument("--stop-watch", action="store_true", help="stop the running watch daemon")
     p.add_argument("--telegram-setup", action="store_true",
                    help="save Telegram bot token + chat id to the cache dir")
@@ -115,7 +118,8 @@ def main(argv: list[str] | None = None) -> int:
                 fh.write(str(os.getpid()))
             print(f"watch daemon started pid={os.getpid()} log={log_file}", flush=True)
         run_watch(watch_interval=args.watch_interval, account=args.account,
-                  risk_pct=args.risk, cache_dir=args.cache_dir)
+                  risk_pct=args.risk, cache_dir=args.cache_dir,
+                  status_every=args.watch_status_interval)
         return 0
     if args.stop:
         from .web import stop_daemon
@@ -132,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         web_serve(args.host, args.port, daemon=args.daemon, log_file=args.log,
                   pid_file=args.pid, with_watch=args.watch_alerts,
                   watch_interval=args.watch_interval, account=args.account,
-                  risk_pct=args.risk)
+                  risk_pct=args.risk, status_every=args.watch_status_interval)
         return 0
     if not (0 < args.risk <= 100):
         print("error: --risk must be in (0, 100]", file=sys.stderr)

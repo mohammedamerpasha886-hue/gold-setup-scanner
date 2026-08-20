@@ -8,17 +8,20 @@ from . import indicators as ind
 from .setup import Setup, _position_size
 
 # Strategy thresholds
-FVG_EMA_MIN_RR = 2.5
-SWEEP_MIN_RR = 3.0
-OB_DIV_MIN_RR = 2.5
-ASIAN_BREAKOUT_MIN_RR = 2.0
-ZONE_FLIP_MIN_RR = 2.5
+FVG_EMA_MIN_RR = 1.5
+SWEEP_MIN_RR = 2.0
+OB_DIV_MIN_RR = 1.5
+ASIAN_BREAKOUT_MIN_RR = 1.5
+ZONE_FLIP_MIN_RR = 1.5
 SWEEP_LOOKBACK = 8          # hours used to define the pre-sweep swing (Asian/early session)
 LONDON_HOURS = (8, 9)       # 08:00-10:00 UTC
 NY_HOURS = (13, 14, 15)     # 13:00-16:00 UTC
 ASIAN_BREAKOUT_HOURS = (7, 8, 9)   # London open window UTC
 ASIAN_HOUR_CUTOFF = 7              # Asian session = 00:00-06:59 UTC
-ZONE_MAX_AGE = 80                  # max bars old for a supply/demand zone to stay fresh
+ASIAN_BREAKOUT_MIN_ADX = 12        # minimum trend strength for the breakout
+ZONE_MAX_AGE = 120                 # max bars old for a supply/demand zone to stay fresh
+ZONE_MIN_STRENGTH = 0.25           # min zone strength to consider
+ZONE_RSI_FILTER = 35               # RSI floor (LONG) / ceiling inverted (SHORT)
 ATR_BUFFER = 0.15
 
 
@@ -123,12 +126,13 @@ def strategy_fvg_ema_pullback(candles_5m: list[Candle], candles_1h: list[Candle]
         return None
 
     rsi_series = ind.rsi(closes5, 14)
+    rsi_last = rsi_series[-1]
     if direction == "LONG":
-        if not _rsi_reset_bullish(rsi_series):
-            return None
+        rsi_ok = _rsi_reset_bullish(rsi_series) or (rsi_last is not None and rsi_last < 35)
     else:
-        if not _rsi_reset_bearish(rsi_series):
-            return None
+        rsi_ok = _rsi_reset_bearish(rsi_series) or (rsi_last is not None and rsi_last > 65)
+    if not rsi_ok:
+        return None
 
     atr = a5.atr or (candles_5m[-1].high - candles_5m[-1].low)
     price = candles_5m[-1].close
@@ -365,16 +369,21 @@ def strategy_order_block_rsi_divergence(candles_5m: list[Candle], candles_15m: l
                                         risk_pct: float = 1.0) -> Setup | None:
     """STRATEGY 3: Order Block Retest + RSI Divergence (Reversal Scalp)."""
     a5 = analyse(candles_5m)
-    if a5.rsi_div not in ("bullish", "bearish"):
+    last = candles_5m[-1]
+    price = last.close
+    rsi_last = a5.rsi
+    if a5.rsi_div in ("bullish", "bearish"):
+        direction = "LONG" if a5.rsi_div == "bullish" else "SHORT"
+    elif a5.structure == "bullish" and rsi_last is not None and rsi_last < 35:
+        direction = "LONG"
+    elif a5.structure == "bearish" and rsi_last is not None and rsi_last > 65:
+        direction = "SHORT"
+    else:
         return None
-    direction = "LONG" if a5.rsi_div == "bullish" else "SHORT"
     if direction == "LONG" and a5.structure == "bearish":
         return None
     if direction == "SHORT" and a5.structure == "bullish":
         return None
-
-    last = candles_5m[-1]
-    price = last.close
     atr = a5.atr or (last.high - last.low)
     ob = None
     for z in a5.order_blocks:
@@ -453,7 +462,7 @@ def strategy_asian_range_breakout(candles_5m: list[Candle], candles_15m: list[Ca
         return None
 
     a5 = analyse(candles_5m)
-    if a5.adx is None or a5.adx < 15:
+    if a5.adx is None or a5.adx < ASIAN_BREAKOUT_MIN_ADX:
         return None
     if direction == "LONG" and (a5.rsi is not None and a5.rsi < 50):
         return None
@@ -473,8 +482,6 @@ def strategy_asian_range_breakout(candles_5m: list[Candle], candles_15m: list[Ca
         if inside:
             fvg = z
             break
-    if fvg is None:
-        return None
 
     range_w = a_hi - a_lo
     if direction == "LONG":
@@ -490,16 +497,18 @@ def strategy_asian_range_breakout(candles_5m: list[Candle], candles_15m: list[Ca
     if risk <= 0 or reward / risk < ASIAN_BREAKOUT_MIN_RR:
         return None
     rr = reward / risk
+    fvg_note = f"retest into unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}; " if fvg else ""
     reason = (
         f"London open breakout of the Asian range {a_lo:.2f}-{a_hi:.2f} "
-        f"(width {range_w:.2f}); retest entry into unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}; "
+        f"(width {range_w:.2f}); {fvg_note}"
         f"ADX {a5.adx:.0f} with MACD {a5.macd_trend}; TP {tp:.2f} = measured move"
     )
     return _assemble(direction, entry, sl, tp, "Asian Range Breakout (London Open)",
                      reason, [
                          f"Session: London open (UTC {last.dt.strftime('%H:%M')})",
                          f"Asian range {a_lo:.2f}-{a_hi:.2f} broken {direction.lower()}",
-                         f"Retest of unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}",
+                         (f"Retest of unfilled FVG {fvg.lo:.2f}-{fvg.hi:.2f}" if fvg
+                          else f"Momentum entry on breakout"),
                          f"ADX {a5.adx:.0f}, RSI {(f'{a5.rsi:.0f}' if a5.rsi is not None else 'n/a')}; "
                          f"TP {tp:.2f} measured move",
                      ], rr, ASIAN_BREAKOUT_MIN_RR, balance, risk_pct)
@@ -522,18 +531,18 @@ def strategy_supply_demand_zone_flip(candles_5m: list[Candle], candles_15m: list
     atr = a5.atr or (last.high - last.low)
     n = len(candles_5m)
     zones: list[tuple] = []
-    zones += [(z, "LONG") for z in a5.demand if z.strength >= 0.35 and n - z.idx < ZONE_MAX_AGE]
-    zones += [(z, "SHORT") for z in a5.supply if z.strength >= 0.35 and n - z.idx < ZONE_MAX_AGE]
+    zones += [(z, "LONG") for z in a5.demand if z.strength >= ZONE_MIN_STRENGTH and n - z.idx < ZONE_MAX_AGE]
+    zones += [(z, "SHORT") for z in a5.supply if z.strength >= ZONE_MIN_STRENGTH and n - z.idx < ZONE_MAX_AGE]
     for zone, direction in zones:
         if not _zone_flip_retest(candles_5m, zone, direction):
             continue
         if direction == "LONG":
-            if a5.rsi is not None and a5.rsi < 40:
+            if a5.rsi is not None and a5.rsi < ZONE_RSI_FILTER:
                 continue
             if not (a5.structure == "bullish" or a5.rsi_div == "bullish"):
                 continue
         else:
-            if a5.rsi is not None and a5.rsi > 60:
+            if a5.rsi is not None and a5.rsi > 100 - ZONE_RSI_FILTER:
                 continue
             if not (a5.structure == "bearish" or a5.rsi_div == "bearish"):
                 continue

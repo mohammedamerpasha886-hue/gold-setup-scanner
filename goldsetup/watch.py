@@ -76,18 +76,21 @@ def stop_watch(pid_file: str | None = None) -> bool:
 
 def run_watch(watch_interval: int = DEFAULT_INTERVAL, account: float = 10000.0,
               risk_pct: float = 1.0, cache_dir: str | None = None,
-              alert_missing: bool = True, heartbeat: bool = True) -> None:
-    """Scan every watch_interval seconds and push qualifying setups to Telegram."""
+              alert_missing: bool = True, heartbeat: bool = True,
+              status_every: int = 1) -> None:
+    """Scan every watch_interval seconds and push setups + periodic status to Telegram."""
     state = _load_state(cache_dir)
     if not state.get("primed"):
         state["primed"] = True
         state["last_signal"] = time.time()
         _save_state(state, cache_dir)
     last_heartbeat = state.get("last_signal", 0)
+    cycle = 0
     _log(f"XAU/USD 24/7 scanner started — every {watch_interval}s "
          f"(account {account:,.0f} @ {risk_pct}% risk)")
     while True:
         try:
+            cycle += 1
             setups, price, source = _scan_once(account, risk_pct, cache_dir)
             now = time.time()
             if setups:
@@ -101,14 +104,13 @@ def run_watch(watch_interval: int = DEFAULT_INTERVAL, account: float = 10000.0,
                         _log(f"ALERT {s.direction} {s.strategy} entry {s.entry:,.2f} "
                              f"R:R 1:{s.rr:.2f}")
                 state["last_signal"] = now
-            else:
-                if alert_missing and now - state.get("last_signal", 0) >= HEARTBEAT_EVERY:
-                    send_message(format_no_setup(price, utc=_utc_now(), source=source))
-                    state["last_signal"] = now
-                    _log("heartbeat sent (no qualifying setup)")
-                elif heartbeat and now - last_heartbeat >= HEARTBEAT_EVERY:
-                    _log(f"still scanning — last {price:,.2f}, no setup")
-                    last_heartbeat = now
+            elif status_every and cycle % status_every == 0:
+                send_message(format_no_setup(price, utc=_utc_now(), source=source))
+                state["last_signal"] = now
+                _log(f"status sent — no qualifying setup, last {price:,.2f}")
+            elif heartbeat and now - last_heartbeat >= HEARTBEAT_EVERY:
+                _log(f"still scanning — last {price:,.2f}, no setup")
+                last_heartbeat = now
             # prune stale signatures so state never grows unbounded
             cutoff = now - 6 * 3600
             state["signatures"] = {k: v for k, v in state["signatures"].items() if v >= cutoff}

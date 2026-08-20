@@ -96,7 +96,8 @@ class Handler(BaseHTTPRequestHandler):
 def serve(host: str = "127.0.0.1", port: int | None = None, daemon: bool = False,
           log_file: str | None = None, pid_file: str | None = None,
           with_watch: bool = False, watch_interval: int = 300,
-          account: float = 10000.0, risk_pct: float = 1.0) -> None:
+          account: float = 10000.0, risk_pct: float = 1.0,
+          status_every: int = 1) -> None:
     import threading
 
     port = port or int(os.environ.get("PORT") or 8080)
@@ -111,7 +112,8 @@ def serve(host: str = "127.0.0.1", port: int | None = None, daemon: bool = False
         from .watch import run_watch
 
         def _watch_loop() -> None:
-            run_watch(watch_interval=watch_interval, account=account, risk_pct=risk_pct)
+            run_watch(watch_interval=watch_interval, account=account, risk_pct=risk_pct,
+                      status_every=status_every)
 
         threading.Thread(target=_watch_loop, name="gold-watch", daemon=True).start()
         print("Telegram watcher embedded — setup alerts active while the server runs", flush=True)
